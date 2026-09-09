@@ -16,13 +16,17 @@
   along with this software. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "mdaEPianoData.h"
+#include "mdaEPianoData.generated.h"
 #include "mdaEPiano.h"
 
 #include "lv2/lv2plug.in/ns/ext/atom/util.h"
 
 #include <stdio.h>
 #include <math.h>
+
+#define EPIANO_INDEX(value) ((value) / EPIANO_SAMPLE_RESAMPLING)
+#define EPIANO_START(value) (((value) + EPIANO_SAMPLE_RESAMPLING - 1) / EPIANO_SAMPLE_RESAMPLING)
+#define EPIANO_LOOP(end, loop) (EPIANO_INDEX(end) + 1 - EPIANO_INDEX((end) + 1 - (loop)))
 
 //#include "AEffEditor.hpp" ////for GUI
 
@@ -73,39 +77,44 @@ mdaEPiano::mdaEPiano(audioMasterCallback audioMaster) : AudioEffectX(audioMaster
   kgrp[27].root = 91;  kgrp[27].high = 93; //G5
   kgrp[30].root = 96;  kgrp[30].high =999; //C6
 
-  kgrp[0].pos = 0;        kgrp[0].end = 8476;     kgrp[0].loop = 4400;
-  kgrp[1].pos = 8477;     kgrp[1].end = 16248;    kgrp[1].loop = 4903;
-  kgrp[2].pos = 16249;    kgrp[2].end = 34565;    kgrp[2].loop = 6398;
-  kgrp[3].pos = 34566;    kgrp[3].end = 41384;    kgrp[3].loop = 3938;
-  kgrp[4].pos = 41385;    kgrp[4].end = 45760;    kgrp[4].loop = 1633; //was 1636;
-  kgrp[5].pos = 45761;    kgrp[5].end = 65211;    kgrp[5].loop = 5245;
-  kgrp[6].pos = 65212;    kgrp[6].end = 72897;    kgrp[6].loop = 2937;
-  kgrp[7].pos = 72898;    kgrp[7].end = 78626;    kgrp[7].loop = 2203; //was 2204;
-  kgrp[8].pos = 78627;    kgrp[8].end = 100387;   kgrp[8].loop = 6368;
-  kgrp[9].pos = 100388;   kgrp[9].end = 116297;   kgrp[9].loop = 10452;
-  kgrp[10].pos = 116298;  kgrp[10].end = 127661;  kgrp[10].loop = 5217; //was 5220;
-  kgrp[11].pos = 127662;  kgrp[11].end = 144113;  kgrp[11].loop = 3099;
-  kgrp[12].pos = 144114;  kgrp[12].end = 152863;  kgrp[12].loop = 4284;
-  kgrp[13].pos = 152864;  kgrp[13].end = 173107;  kgrp[13].loop = 3916;
-  kgrp[14].pos = 173108;  kgrp[14].end = 192734;  kgrp[14].loop = 2937;
-  kgrp[15].pos = 192735;  kgrp[15].end = 204598;  kgrp[15].loop = 4732;
-  kgrp[16].pos = 204599;  kgrp[16].end = 218995;  kgrp[16].loop = 4733;
-  kgrp[17].pos = 218996;  kgrp[17].end = 233801;  kgrp[17].loop = 2285;
-  kgrp[18].pos = 233802;  kgrp[18].end = 248011;  kgrp[18].loop = 4098;
-  kgrp[19].pos = 248012;  kgrp[19].end = 265287;  kgrp[19].loop = 4099;
-  kgrp[20].pos = 265288;  kgrp[20].end = 282255;  kgrp[20].loop = 3609;
-  kgrp[21].pos = 282256;  kgrp[21].end = 293776;  kgrp[21].loop = 2446;
-  kgrp[22].pos = 293777;  kgrp[22].end = 312566;  kgrp[22].loop = 6278;
-  kgrp[23].pos = 312567;  kgrp[23].end = 330200;  kgrp[23].loop = 2283;
-  kgrp[24].pos = 330201;  kgrp[24].end = 348889;  kgrp[24].loop = 2689;
-  kgrp[25].pos = 348890;  kgrp[25].end = 365675;  kgrp[25].loop = 4370;
-  kgrp[26].pos = 365676;  kgrp[26].end = 383661;  kgrp[26].loop = 5225;
-  kgrp[27].pos = 383662;  kgrp[27].end = 393372;  kgrp[27].loop = 2811;
-  kgrp[28].pos = 383662;  kgrp[28].end = 393372;  kgrp[28].loop = 2811; //ghost
-  kgrp[29].pos = 393373;  kgrp[29].end = 406045;  kgrp[29].loop = 4522;
-  kgrp[30].pos = 406046;  kgrp[30].end = 414486;  kgrp[30].loop = 2306;
-  kgrp[31].pos = 406046;  kgrp[31].end = 414486;  kgrp[31].loop = 2306; //ghost
-  kgrp[32].pos = 414487;  kgrp[32].end = 422408;  kgrp[32].loop = 2169;
+  #define EPIANO_KGRP(group_index, source_pos, source_end, source_loop) \
+    kgrp[group_index].pos = EPIANO_START(source_pos); \
+    kgrp[group_index].end = EPIANO_INDEX(source_end); \
+    kgrp[group_index].loop = EPIANO_LOOP(source_end, source_loop)
+  EPIANO_KGRP(0, 0, 8476, 4400);
+  EPIANO_KGRP(1, 8477, 16248, 4903);
+  EPIANO_KGRP(2, 16249, 34565, 6398);
+  EPIANO_KGRP(3, 34566, 41384, 3938);
+  EPIANO_KGRP(4, 41385, 45760, 1633);
+  EPIANO_KGRP(5, 45761, 65211, 5245);
+  EPIANO_KGRP(6, 65212, 72897, 2937);
+  EPIANO_KGRP(7, 72898, 78626, 2203);
+  EPIANO_KGRP(8, 78627, 100387, 6368);
+  EPIANO_KGRP(9, 100388, 116297, 10452);
+  EPIANO_KGRP(10, 116298, 127661, 5217);
+  EPIANO_KGRP(11, 127662, 144113, 3099);
+  EPIANO_KGRP(12, 144114, 152863, 4284);
+  EPIANO_KGRP(13, 152864, 173107, 3916);
+  EPIANO_KGRP(14, 173108, 192734, 2937);
+  EPIANO_KGRP(15, 192735, 204598, 4732);
+  EPIANO_KGRP(16, 204599, 218995, 4733);
+  EPIANO_KGRP(17, 218996, 233801, 2285);
+  EPIANO_KGRP(18, 233802, 248011, 4098);
+  EPIANO_KGRP(19, 248012, 265287, 4099);
+  EPIANO_KGRP(20, 265288, 282255, 3609);
+  EPIANO_KGRP(21, 282256, 293776, 2446);
+  EPIANO_KGRP(22, 293777, 312566, 6278);
+  EPIANO_KGRP(23, 312567, 330200, 2283);
+  EPIANO_KGRP(24, 330201, 348889, 2689);
+  EPIANO_KGRP(25, 348890, 365675, 4370);
+  EPIANO_KGRP(26, 365676, 383661, 5225);
+  EPIANO_KGRP(27, 383662, 393372, 2811);
+  EPIANO_KGRP(28, 383662, 393372, 2811);
+  EPIANO_KGRP(29, 393373, 406045, 4522);
+  EPIANO_KGRP(30, 406046, 414486, 2306);
+  EPIANO_KGRP(31, 406046, 414486, 2306);
+  EPIANO_KGRP(32, 414487, 422408, 2169);
+  #undef EPIANO_KGRP
 
   //extra xfade looping...
   for(int32_t k=0; k<28; k++)
@@ -457,7 +466,7 @@ void mdaEPiano::noteOn(int32_t note, int32_t velocity)
     k = 0;
     while(note > (kgrp[k].high + s)) k += 3;  //find keygroup
     l += (float)(note - kgrp[k].root); //pitch
-    l = 32000.0f * iFs * (float)exp(0.05776226505 * l);
+    l = 32000.0f * iFs * (float)exp(0.05776226505 * l) / EPIANO_SAMPLE_RESAMPLING;
     voice[vl].delta = (int32_t)(65536.0f * l);
     voice[vl].frac = 0;
 
