@@ -2,6 +2,7 @@
 import os
 import re
 import shutil
+import sys
 import waflib.extras.autowaf as autowaf
 
 MDA_VERSION = '1.1.0'
@@ -16,11 +17,24 @@ def options(opt):
     opt.load('compiler_cxx')
     autowaf.set_options(opt)
     opt.add_option('--picolv2', action='store_true', default=False, dest='picolv2',
-                   help='Build DX10 and JX10 for the PicoLV2 target')
+                   help='Build plugins for the PicoLV2 target')
+    opt.add_option('--epiano-decimation', type='int', default=1, dest='epiano_decimation',
+                   help='Keep every Nth EPiano PCM sample (1, 2, 3, or 4; default: 1)')
+    opt.add_option('--piano-decimation', type='int', default=1, dest='piano_decimation',
+                   help='Keep every Nth Piano PCM sample (1, 2, 3, or 4; default: 1)')
 
 def configure(conf):
     is_pico = getattr(conf.options, 'picolv2', False)
+    decimations = {
+        'EPiano': conf.options.epiano_decimation,
+        'Piano': conf.options.piano_decimation,
+    }
+    for plugin, decimation in decimations.items():
+        if decimation not in (1, 2, 3, 4):
+            conf.fatal('--%s-decimation must be 1, 2, 3, or 4' % plugin.lower())
     conf.env['PICOLV2'] = is_pico
+    conf.env['EPIANO_DECIMATION'] = str(decimations['EPiano'])
+    conf.env['PIANO_DECIMATION'] = str(decimations['Piano'])
     if is_pico:
         os.environ['CXX'] = 'arm-none-eabi-g++'
         os.environ['CC'] = 'arm-none-eabi-gcc'
@@ -44,6 +58,22 @@ def build(bld):
     # Make a pattern for shared objects without the 'lib' prefix
     module_pat = re.sub('^lib', '', bld.env.cxxshlib_PATTERN)
     module_ext = module_pat[module_pat.rfind('.'):]
+    bld.add_group('sample_data')
+    generated_dir = bld.path.get_bld().make_node('generated')
+    generator = bld.path.find_resource('scripts/resample_samples.py').abspath()
+    sample_data = {
+        'EPiano': ('mdaEPianoData.h', 'mdaEPianoData.generated.h', 'EPIANO_DECIMATION'),
+        'Piano': ('mdaPianoData.h', 'mdaPianoData.generated.h', 'PIANO_DECIMATION'),
+    }
+    generated_headers = {}
+    for plugin, (source_name, generated_name, decimation_env) in sample_data.items():
+        generated_headers[plugin] = generated_dir.make_node(generated_name)
+        bld(
+            rule='"%s" "%s" ${SRC} ${TGT} %s' %
+                 (sys.executable, generator, bld.env[decimation_env]),
+            source='src/%s' % source_name,
+            target=generated_headers[plugin])
+    bld.add_group('plugins')
 
     plugins = '''
             Ambience
@@ -95,18 +125,25 @@ def build(bld):
 
         # Build plugin library
         source = ['src/mda%s.cpp' % p, 'lvz/wrapper.cpp']
+        includes = ['.', './lvz', './src']
+        if p in generated_headers:
+            includes += [generated_dir]
         if bld.env['PICOLV2']:
             source += ['picolv2-runtime.cpp']
+        defines = ['PLUGIN_CLASS=mda%s' % p,
+                   'URI_PREFIX="http://moddevices.com/plugins/mda/"',
+                   'PLUGIN_URI_SUFFIX="%s"' % p,
+                   'PLUGIN_HEADER="src/mda%s.h"' % p]
+        if p in sample_data:
+            defines.append('%s_SAMPLE_DECIMATION=%s' %
+                           (p.upper(), bld.env[sample_data[p][2]]))
         obj = bld(features     = 'cxx cxxshlib',
                   source       = source,
-                  includes     = ['.', './lvz', './src'],
+                  includes     = includes,
                   name         = p,
                   target       = os.path.join(bundle, p),
                   install_path = '${LV2DIR}/' + bundle,
-                  defines      = ['PLUGIN_CLASS=mda%s' % p,
-                                  'URI_PREFIX="http://moddevices.com/plugins/mda/"',
-                                  'PLUGIN_URI_SUFFIX="%s"' % p,
-                                  'PLUGIN_HEADER="src/mda%s.h"' % p])
+                  defines      = defines)
         if bld.env['PICOLV2']:
             obj.cxxflags = [
                 '-mcpu=cortex-m33', '-mthumb', '-mfloat-abi=hard', '-mfpu=fpv5-sp-d16',
